@@ -2,268 +2,418 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import hashlib
-import random
-import time
 import plotly.express as px
-from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 
-# =========================
-# CONFIG
-# =========================
+# =====================================
+# PAGE CONFIG
+# =====================================
 st.set_page_config(
-    page_title="AI SaaS Intelligence Platform",
+    page_title="Secure Power BI Enterprise",
     layout="wide",
-    page_icon="🚀"
+    page_icon="📊"
 )
 
-# =========================
-# DATABASE LAYER (SIMULATED POSTGRESQL)
-# =========================
-class Database:
-    def __init__(self):
-        self.users = {
-            "admin": {"pwd": hashlib.sha256("admin123".encode()).hexdigest(), "role": "Admin"},
-            "analyst": {"pwd": hashlib.sha256("1234".encode()).hexdigest(), "role": "Analyst"},
-            "client": {"pwd": hashlib.sha256("client".encode()).hexdigest(), "role": "Client"}
-        }
+# =====================================
+# SECURE USER DATABASE
+# =====================================
+USERS = {
+    "admin": {
+        "pwd": hashlib.sha256("admin123".encode()).hexdigest(),
+        "role": "Admin"
+    },
+    "analyst": {
+        "pwd": hashlib.sha256("1234".encode()).hexdigest(),
+        "role": "Analyst"
+    },
+    "viewer": {
+        "pwd": hashlib.sha256("viewer".encode()).hexdigest(),
+        "role": "Viewer"
+    }
+}
 
-db = Database()
+# =====================================
+# AUTHENTICATION
+# =====================================
+def authenticate(username, password):
 
-# =========================
-# AUTH SYSTEM (ROLE BASED)
-# =========================
-def login(user, pwd):
-    u = db.users.get(user)
-    if u and u["pwd"] == hashlib.sha256(pwd.encode()).hexdigest():
-        return True, u["role"]
+    user = USERS.get(username)
+
+    if not user:
+        return False, None
+
+    hashed_password = hashlib.sha256(password.encode()).hexdigest()
+
+    if hashed_password == user["pwd"]:
+        return True, user["role"]
+
     return False, None
 
+
+# =====================================
+# SESSION STATE
+# =====================================
 if "auth" not in st.session_state:
     st.session_state.auth = False
+    st.session_state.user = None
     st.session_state.role = None
+    st.session_state.reports = {}
 
+# =====================================
+# LOGIN SCREEN
+# =====================================
 if not st.session_state.auth:
-    st.title("🔐 SaaS Login System")
 
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+    st.title("🔐 Secure Enterprise Login")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        ok, role = login(u, p)
-        if ok:
+
+        success, role = authenticate(username, password)
+
+        if success:
             st.session_state.auth = True
+            st.session_state.user = username
             st.session_state.role = role
             st.rerun()
+
         else:
-            st.error("Invalid credentials")
+            st.error("❌ Invalid credentials")
 
     st.stop()
 
-# =========================
-# DATA ENGINE (SaaS EVENTS)
-# =========================
+# =====================================
+# USER ROLE
+# =====================================
+role = st.session_state.role
+
+# =====================================
+# LOAD DATA
+# =====================================
 @st.cache_data
 def load_data():
-    months = pd.date_range("2020-01-01", periods=60, freq="ME")
-    types = ["Real Estate", "Transport", "Business"]
+
+    # FIXED:
+    # 'M' removed in latest pandas
+    # Use 'ME' (Month End)
+
+    months = pd.date_range(
+        start="2020-01-01",
+        periods=60,
+        freq="ME"
+    )
 
     data = []
-    for t in types:
-        base = 120
-        for i, m in enumerate(months):
-            leads = base + i * 4 + np.random.randint(0, 15)
-            conv = max(5, int(leads * (0.2 + i * 0.002)))
 
-            data.append({
-                "Template": t,
-                "Month": m,
-                "Leads": leads,
-                "Conversions": conv,
-                "SEO": min(100, 40 + i),
-                "UX": min(100, 30 + i),
-                "Broken": max(1, 80 - i)
-            })
-    return pd.DataFrame(data)
+    for i, month in enumerate(months):
 
+        leads = max(10, 120 + i * 4 + np.random.randint(0, 10))
+
+        conversions = max(
+            1,
+            int(leads * (0.20 + i * 0.002))
+        )
+
+        revenue = leads * 300 + conversions * 1500
+        cost = leads * 120
+
+        data.append({
+            "Month": month,
+            "Year": month.year,
+            "Leads": leads,
+            "Conversions": conversions,
+            "Revenue": revenue,
+            "Cost": cost,
+            "SEO": min(100, 40 + i),
+            "UX": min(100, 30 + i),
+            "Product": np.random.choice(
+                ["SaaS", "API", "Analytics"]
+            ),
+            "Market": np.random.choice(
+                ["India", "US", "Global"]
+            )
+        })
+
+    dataframe = pd.DataFrame(data)
+
+    return dataframe
+
+
+# =====================================
+# DATAFRAME
+# =====================================
 df = load_data()
 
-# =========================
-# FEATURE ENGINEERING (SaaS CORE METRICS)
-# =========================
-df["Revenue"] = df["Leads"] * 300 + df["Conversions"] * 1500
-df["Cost"] = df["Leads"] * 120
+# =====================================
+# FEATURE ENGINEERING
+# =====================================
+df["ROI"] = np.where(
+    df["Cost"] > 0,
+    ((df["Revenue"] - df["Cost"]) / df["Cost"]) * 100,
+    0
+)
 
 df["CAC"] = df["Cost"] / (df["Conversions"] + 1)
-df["LTV"] = df["Conversions"] * 5000
-df["ROI"] = (df["Revenue"] - df["Cost"]) / df["Cost"] * 100
-
-df["Churn"] = np.clip(100 - df["Conversions"], 5, 95)
-df["Retention"] = 100 - df["Churn"]
-
-df["Lead_Score"] = (
-    df["SEO"] * 0.3 +
-    df["UX"] * 0.3 +
-    df["Conversions"] * 0.4
-)
 
 df["Risk"] = (
-    (100 - df["SEO"]) * 0.4 +
-    (100 - df["UX"]) * 0.3 +
-    df["Broken"] * 0.3
+    (100 - df["SEO"]) * 0.5 +
+    (100 - df["UX"]) * 0.5
 )
 
-# =========================
-# ROLE DASHBOARD CONTROL
-# =========================
-st.sidebar.title("⚙️ SaaS Controls")
-template = st.sidebar.selectbox("Business Type", df["Template"].unique())
-theme = st.sidebar.color_picker("Theme", "#00A8FF")
+df["Efficiency"] = (
+    df["Revenue"] / (df["Cost"] + 1)
+)
 
-data = df[df["Template"] == template]
+# =====================================
+# MACHINE LEARNING MODEL
+# =====================================
+df["t"] = range(len(df))
 
-st.title("🚀 AI SaaS Intelligence Platform")
+X = df[["t", "SEO", "UX"]].fillna(0)
+y = df["Revenue"].fillna(0)
 
-# =========================
-# EXECUTIVE DASHBOARD
-# =========================
-st.header("📊 Executive Dashboard")
+model = RandomForestRegressor(
+    n_estimators=100,
+    random_state=42
+)
 
-c1, c2, c3, c4 = st.columns(4)
+model.fit(X, y)
 
-c1.metric("Revenue", f"₹{int(data['Revenue'].sum())}")
-c2.metric("CAC", round(data["CAC"].mean(), 2))
-c3.metric("LTV", round(data["LTV"].mean(), 2))
-c4.metric("ROI %", round(data["ROI"].mean(), 2))
-
-st.metric("Churn %", round(data["Churn"].mean(), 2))
-st.metric("Risk Index", round(data["Risk"].mean(), 2))
-
-# =========================
-# ML ENGINE (REAL SaaS AI)
-# =========================
-st.header("🧠 AI Prediction Engine")
-
-model = RandomForestRegressor(n_estimators=100)
-
-train = data.copy()
-train["t"] = range(len(train))
-
-model.fit(train[["t", "SEO", "UX"]], train["Revenue"])
-
+# =====================================
+# FUTURE PREDICTION
+# =====================================
 future = pd.DataFrame({
-    "t": range(len(train), len(train) + 24),
+    "t": range(len(df), len(df) + 24),
     "SEO": np.random.randint(40, 100, 24),
     "UX": np.random.randint(40, 100, 24)
 })
 
-future["Revenue"] = model.predict(future[["t", "SEO", "UX"]])
+future["Prediction"] = model.predict(
+    future[["t", "SEO", "UX"]]
+)
 
-st.line_chart(pd.concat([
-    train[["Revenue"]],
-    future[["Revenue"]]
-]).reset_index(drop=True))
+# =====================================
+# SIDEBAR
+# =====================================
+st.sidebar.title("📊 Enterprise Control Panel")
 
-# =========================
-# GROWTH ANALYTICS
-# =========================
-st.header("📈 Growth Analytics")
+page = st.sidebar.radio(
+    "Navigation",
+    [
+        "📌 Dashboard",
+        "📈 Report Builder",
+        "🧠 AI Forecast",
+        "📂 Data"
+    ]
+)
 
-data["Growth"] = data.groupby("Template")["Revenue"].pct_change().fillna(0) * 100
-st.line_chart(data.set_index("Month")["Growth"])
+theme = st.sidebar.color_picker(
+    "Theme Color",
+    "#00A8FF"
+)
 
-# =========================
-# WEBSITE INTELLIGENCE
-# =========================
-st.header("🌐 Website Intelligence")
+st.sidebar.markdown(f"""
+### 👤 User Information
 
-data["SEO_Gap"] = 100 - data["SEO"]
-data["UX_Gap"] = 100 - data["UX"]
-data["Tech_Gap"] = data["Broken"] / 10
+**User:** {st.session_state.user}
 
-st.bar_chart(pd.DataFrame({
-    "SEO": [data["SEO_Gap"].mean()],
-    "UX": [data["UX_Gap"].mean()],
-    "Tech": [data["Tech_Gap"].mean()]
-}))
+**Role:** {role}
+""")
 
-# =========================
-# CHURN + LEAD SCORING
-# =========================
-st.header("🎯 Lead Intelligence")
+# =====================================
+# SAVE REPORT
+# =====================================
+def save_report(name, config):
 
-st.write("Lead Score Avg:", data["Lead_Score"].mean())
-st.write("Churn Avg:", data["Churn"].mean())
+    if not name.strip():
+        st.error("❌ Report name cannot be empty")
+        return
 
-# =========================
-# FORECASTING ENGINE
-# =========================
-st.header("🔮 Forecast Engine")
+    st.session_state.reports[name] = {
+        "user": st.session_state.user,
+        "config": config
+    }
 
-past = data.groupby("Month")["Revenue"].mean().reset_index()
-past["t"] = range(len(past))
+# =====================================
+# DASHBOARD
+# =====================================
+if page == "📌 Dashboard":
 
-lr = LinearRegression()
-lr.fit(past[["t"]], past["Revenue"])
+    st.title("📊 Executive Dashboard")
 
-future_t = np.arange(len(past), len(past) + 24)
+    col1, col2, col3, col4 = st.columns(4)
 
-future_df = pd.DataFrame({
-    "t": future_t
-})
+    col1.metric(
+        "Revenue",
+        f"₹{int(df['Revenue'].sum()):,}"
+    )
 
-future_df["Revenue"] = lr.predict(future_df[["t"]])
+    col2.metric(
+        "Average ROI",
+        f"{round(df['ROI'].mean(), 2)}%"
+    )
 
-st.line_chart(pd.concat([past[["Revenue"]], future_df[["Revenue"]]]))
+    col3.metric(
+        "Efficiency",
+        round(df["Efficiency"].mean(), 2)
+    )
 
-# =========================
-# COMPETITOR SCRAPER (SIMULATED)
-# =========================
-st.header("📡 Competitor Intelligence (Scraper Simulation)")
+    col4.metric(
+        "Risk Score",
+        round(df["Risk"].mean(), 2)
+    )
 
-data["Competitor"] = data["Revenue"] * np.random.uniform(0.8, 1.2, len(data))
+    fig = px.line(
+        df,
+        x="Month",
+        y="Revenue",
+        color="Product",
+        title="Revenue Trend"
+    )
 
-st.line_chart(data[["Revenue", "Competitor"]])
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
-# =========================
-# ANOMALY DETECTION
-# =========================
-st.header("⚠️ Anomaly Detection")
+# =====================================
+# REPORT BUILDER
+# =====================================
+elif page == "📈 Report Builder":
 
-data["Anomaly"] = data["Revenue"].diff()
-anoms = data[abs(data["Anomaly"]) > data["Anomaly"].std()]
+    st.title("📈 Secure Report Builder")
 
-st.dataframe(anoms)
+    chart_type = st.selectbox(
+        "Select Chart Type",
+        ["Line", "Bar", "Scatter"]
+    )
 
-# =========================
-# ACTION ENGINE (AI DECISION SYSTEM)
-# =========================
-st.header("🎯 AI Action Engine")
+    x_axis = st.selectbox(
+        "Select X Axis",
+        df.columns
+    )
 
-actions = []
+    y_axis = st.selectbox(
+        "Select Y Axis",
+        df.columns
+    )
 
-if data["SEO"].mean() < 60:
-    actions.append("Improve SEO strategy")
+    color = st.selectbox(
+        "Color By",
+        ["Product", "Market", "None"]
+    )
 
-if data["UX"].mean() < 60:
-    actions.append("Improve UX performance")
+    report_name = st.text_input(
+        "Enter Report Name"
+    )
 
-if data["Risk"].mean() > 50:
-    actions.append("Reduce system risk & stabilize funnel")
+    selected_color = None if color == "None" else color
 
-if len(actions) == 0:
-    actions.append("System optimized")
+    # Generate chart
+    if chart_type == "Line":
 
-for a in actions:
-    st.success(a)
+        fig = px.line(
+            df,
+            x=x_axis,
+            y=y_axis,
+            color=selected_color
+        )
 
-# =========================
-# THEME
-# =========================
-st.markdown(f"""
-<style>
-h1, h2, h3 {{
-    color: {theme};
-}}
-</style>
-""", unsafe_allow_html=True)
+    elif chart_type == "Bar":
+
+        fig = px.bar(
+            df,
+            x=x_axis,
+            y=y_axis,
+            color=selected_color
+        )
+
+    else:
+
+        fig = px.scatter(
+            df,
+            x=x_axis,
+            y=y_axis,
+            color=selected_color
+        )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    if st.button("💾 Save Report"):
+
+        save_report(
+            report_name,
+            {
+                "chart": chart_type,
+                "x": x_axis,
+                "y": y_axis,
+                "color": color
+            }
+        )
+
+        st.success("✅ Report Saved Successfully")
+
+# =====================================
+# AI FORECAST
+# =====================================
+elif page == "🧠 AI Forecast":
+
+    st.title("🧠 AI Revenue Forecast")
+
+    combined = pd.concat([
+        df[["Revenue"]],
+
+        future[["Prediction"]].rename(
+            columns={"Prediction": "Revenue"}
+        )
+    ])
+
+    fig = px.line(
+        combined,
+        y="Revenue",
+        title="Future Revenue Prediction"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+# =====================================
+# DATA EXPLORER
+# =====================================
+elif page == "📂 Data":
+
+    st.title("📂 Dataset Explorer")
+
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
+
+# =====================================
+# CUSTOM THEME
+# =====================================
+st.markdown(
+    f"""
+    <style>
+    h1, h2, h3 {{
+        color: {theme};
+    }}
+
+    .stButton>button {{
+        background-color: {theme};
+        color: white;
+        border-radius: 10px;
+        border: none;
+        padding: 0.5rem 1rem;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
