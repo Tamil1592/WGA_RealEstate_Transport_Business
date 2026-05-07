@@ -2,7 +2,6 @@ streamlit
 pandas
 numpy
 plotly
+scikit-learn
 requests
 beautifulsoup4
-scikit-learn
-lxml
